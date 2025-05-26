@@ -120,6 +120,7 @@ defmodule Desktop.Window do
     menubar = unless OS.mobile?(), do: options[:menubar]
     icon_menu = unless OS.mobile?(), do: options[:icon_menu]
     hidden = unless OS.mobile?(), do: options[:hidden]
+    full_screen = unless OS.mobile?(), do: options[:full_screen]
     url = options[:url]
 
     Desktop.Env.wx_use_env()
@@ -157,6 +158,11 @@ defmodule Desktop.Window do
       end
 
     :wxTopLevelWindow.setIcon(frame, icon)
+
+    if full_screen do
+      :wxTopLevelWindow.showFullScreen(frame, true)
+    end
+
     env = Desktop.Env.wx_env()
 
     wx_menubar =
