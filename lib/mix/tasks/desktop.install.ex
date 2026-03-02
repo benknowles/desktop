@@ -66,7 +66,6 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
                id: unquote(Igniter.Project.Module.module_name(igniter, MainWindow)),
                title: unquote(to_string(app)),
                size: {600, 500},
-               # icon: "icon.png", # TODO: ship an example taskbar icon here
                menubar: unquote(menubar),
                icon_menu: unquote(menu),
                url: &unquote(endpoint).url/0
@@ -75,8 +74,6 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
         },
         after: [endpoint]
       )
-
-      # TODO: Add runtime_tools observer if available, or optionall add the dependency
     end
 
     defp add_menu_bar(igniter, menubar, gettext, endpoint) do
