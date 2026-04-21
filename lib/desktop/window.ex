@@ -73,6 +73,18 @@ defmodule Desktop.Window do
     * `:url` - a callback to the initial (default) url to show in the
       window.
 
+    * `:on_close` - controls the behavior when the native window close
+      button is clicked.
+
+        Possible values are:
+
+        * `:quit` - Shut down the application (default). This is the
+          legacy behavior and is appropriate for main/primary windows.
+
+        * `:hide` - Hide the window instead of quitting. Useful for
+          secondary windows (e.g. settings, preferences) that should
+          be dismissible without terminating the application.
+
   """
 
   alias Desktop.{OS, Window, Wx, Menu, Fallback}
@@ -87,7 +99,8 @@ defmodule Desktop.Window do
     :webview,
     :home_url,
     :last_url,
-    :title
+    :title,
+    on_close: :quit
   ]
 
   @doc false
@@ -122,6 +135,7 @@ defmodule Desktop.Window do
     hidden = unless OS.mobile?(), do: options[:hidden]
     full_screen = unless OS.mobile?(), do: options[:full_screen]
     url = options[:url]
+    on_close = options[:on_close] || :quit
 
     Desktop.Env.wx_use_env()
     GenServer.cast(Desktop.Env, {:register_window, self()})
@@ -215,7 +229,8 @@ defmodule Desktop.Window do
       notifications: %{},
       home_url: url,
       title: window_title,
-      taskbar: taskbar
+      taskbar: taskbar,
+      on_close: on_close
     }
 
     if hidden != true do
@@ -238,6 +253,22 @@ defmodule Desktop.Window do
   """
   def url(pid) do
     GenServer.call(pid, :url)
+  end
+
+  @doc """
+  Loads the given url into the Window.
+
+    * `pid` - The pid or atom of the Window
+    * `url` - The url to load. If none is provided, the last url will be used.
+
+  ## Examples
+
+      iex> Desktop.Window.load_url(pid, "http://localhost:1234/main")
+      :ok
+
+  """
+  def load_url(pid, url) do
+    GenServer.cast(pid, {:load_url, url})
   end
 
   @doc """
@@ -436,9 +467,7 @@ defmodule Desktop.Window do
 
   ## Examples
 
-      iex> :wx.set_env(Desktop.Env.wx_env())
-      iex> :wxWebView.isContextMenuEnabled(Desktop.Window.webview(pid))
-      false
+      iex> Desktop.Window.show_notification(pid, "Hello, world!")
 
   """
   def show_notification(pid, text, opts \\ []) do
@@ -463,6 +492,13 @@ defmodule Desktop.Window do
 
     callback = Keyword.get(opts, :callback, nil)
     GenServer.cast(pid, {:show_notification, text, id, type, title, callback, timeout})
+  end
+
+  @doc """
+  Dismiss a notification
+  """
+  def dismiss_notification(pid, id) do
+    GenServer.cast(pid, {:dismiss_notification, id})
   end
 
   @doc """
@@ -550,26 +586,31 @@ defmodule Desktop.Window do
   end
 
   @doc false
-  def handle_cast(:close_window, ui = %Window{frame: frame, taskbar: taskbar}) do
-    # On macOS, there's no way to differentiate between following two events:
-    #
-    # * the window close event
-    # * the application close event
-    #
-    # So, this code assumes that if there's a closet_window event coming in while
-    # the window in not actually shown, then it must be an application close event.
-    #
-    # On other platforms, this code should not have any relevance.
-    if not :wxFrame.isShown(frame) do
-      OS.shutdown()
-    end
-
-    if taskbar == nil do
-      OS.shutdown()
-      {:noreply, ui}
-    else
+  def handle_cast(:close_window, ui = %Window{frame: frame, taskbar: taskbar, on_close: on_close}) do
+    if on_close == :hide do
       :wxFrame.hide(frame)
       {:noreply, ui}
+    else
+      # On macOS, there's no way to differentiate between following two events:
+      #
+      # * the window close event
+      # * the application close event
+      #
+      # So, this code assumes that if there's a close_window event coming in while
+      # the window is not actually shown, then it must be an application close event.
+      #
+      # On other platforms, this code should not have any relevance.
+      if not :wxFrame.isShown(frame) do
+        OS.shutdown()
+      end
+
+      if taskbar == nil do
+        OS.shutdown()
+        {:noreply, ui}
+      else
+        :wxFrame.hide(frame)
+        {:noreply, ui}
+      end
     end
   end
 
@@ -586,7 +627,7 @@ defmodule Desktop.Window do
     {:noreply, ui}
   end
 
-  def handle_cast(:rebuild_webview, ui) do
+  def handle_cast(:rebuild_webview, ui = %Window{}) do
     {:noreply, %Window{ui | webview: Fallback.webview_rebuild(ui)}}
   end
 
@@ -606,10 +647,28 @@ defmodule Desktop.Window do
     {:noreply, %Window{ui | notifications: noties}}
   end
 
+  def handle_cast({:dismiss_notification, id}, ui = %Window{notifications: noties}) do
+    case Map.pop(noties, id) do
+      {nil, _noties} ->
+        {:noreply, ui}
+
+      {{note, _callback}, noties} ->
+        Fallback.notification_close(note)
+        {:noreply, %Window{ui | notifications: noties}}
+    end
+  end
+
   def handle_cast({:show, url}, ui = %Window{home_url: home, last_url: last}) do
     new_url = prepare_url(url || last || home)
     Logger.info("Showing #{new_url}")
     Fallback.webview_show(ui, new_url, url == nil)
+    {:noreply, %Window{ui | last_url: new_url}}
+  end
+
+  def handle_cast({:load_url, url}, ui = %Window{home_url: home, last_url: last}) do
+    new_url = prepare_url(url || last || home)
+    Logger.info("Loading #{new_url}")
+    Fallback.webview_load(ui, new_url)
     {:noreply, %Window{ui | last_url: new_url}}
   end
 

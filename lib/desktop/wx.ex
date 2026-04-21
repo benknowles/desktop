@@ -24,12 +24,9 @@ defmodule Desktop.Wx do
     """
   )
 
-  for wx_constant <- @constants do
-    Module.eval_quoted(
-      __MODULE__,
-      Code.string_to_quoted("""
-        def wx#{wx_constant}, do: :desktop_wx.get(:wx#{wx_constant})
-      """)
-    )
-  end
+  @constants
+  |> Enum.map(&String.to_atom("wx" <> &1))
+  |> Enum.each(fn prefixed_constant ->
+    def unquote(prefixed_constant)(), do: :desktop_wx.get(unquote(prefixed_constant))
+  end)
 end
