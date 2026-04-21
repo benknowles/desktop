@@ -165,13 +165,19 @@ defmodule Desktop.Window do
 
     :wxFrame.setSizer(frame, :wxBoxSizer.new(Wx.wxHORIZONTAL()))
 
-    {:ok, icon} =
-      case icon do
-        nil -> {:ok, :wxArtProvider.getIcon("wxART_EXECUTABLE_FILE")}
-        filename -> Desktop.Image.new_icon(app, filename)
-      end
+    case :os.type() do
+      {:unix, :linux} ->
+        :ok
 
-    :wxTopLevelWindow.setIcon(frame, icon)
+      _ ->
+        {:ok, icon} =
+          case icon do
+            nil -> {:ok, :wxArtProvider.getIcon("wxART_EXECUTABLE_FILE")}
+            filename -> Desktop.Image.new_icon(app, filename)
+          end
+
+        :wxTopLevelWindow.setIcon(frame, icon)
+    end
 
     if full_screen do
       :wxTopLevelWindow.showFullScreen(frame, true)
